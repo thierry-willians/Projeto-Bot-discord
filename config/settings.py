@@ -68,7 +68,9 @@ def get_settings() -> Settings:
         SUBSCRIPTION_DAYS=int(os.getenv("SUBSCRIPTION_DAYS", "30")),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "subscriptions.db"),
         WEBHOOK_HOST=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
-        WEBHOOK_PORT=int(os.getenv("WEBHOOK_PORT", "8000")),
+        # Railway injeta a porta certa na variável PORT; localmente cai no
+        # WEBHOOK_PORT do .env (padrão 8000).
+        WEBHOOK_PORT=int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000"))),
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
         ADMIN_KEY=os.getenv("ADMIN_KEY", ""),
     )
