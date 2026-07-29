@@ -1,11 +1,3 @@
-"""
-Conexão com o banco de dados SQLite.
-
-Mantém uma única conexão persistente protegida por um lock, o que é
-suficiente para o volume de acessos deste sistema (comandos do Discord +
-webhooks do Mercado Pago, nunca em alta concorrência). Evita o overhead e a
-complexidade de um pool para um caso de uso pequeno.
-"""
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -42,7 +34,6 @@ class Database:
 
     @contextmanager
     def connect(self):
-        """Uso: `with db.connect() as conn: ...`  (conn é um sqlite3.Connection)."""
         with self._lock:
             yield self._conn
 
