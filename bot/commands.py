@@ -1,4 +1,3 @@
-"""Comandos de barra (slash commands) do bot."""
 import uuid
 import asyncio
 import discord
