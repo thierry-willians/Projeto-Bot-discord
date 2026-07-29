@@ -1,4 +1,3 @@
-"""Funções para adicionar/remover o cargo de assinante no Discord."""
 import discord
 
 
