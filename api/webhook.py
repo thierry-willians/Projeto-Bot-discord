@@ -7,6 +7,7 @@ mudou; o status real do pagamento é sempre confirmado consultando a API do
 Mercado Pago (mp_client.consultar_pagamento).
 """
 import logging
+import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -52,7 +53,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             return {"status": "ignorado"}
 
         try:
-            pagamento_mp = mp_client.consultar_pagamento(str(payment_id))
+            pagamento_mp = await asyncio.to_thread(mp_client.consultar_pagamento, str(payment_id))
         except MercadoPagoError as exc:
             logger.error("Falha ao consultar pagamento %s: %s", payment_id, exc)
             raise HTTPException(status_code=502, detail="Falha ao consultar Mercado Pago")

@@ -1,6 +1,6 @@
 """Comandos de barra (slash commands) do bot."""
 import uuid
-
+import asyncio
 import discord
 
 from config.settings import get_settings
@@ -24,7 +24,8 @@ def setup_commands(bot: discord.Client, db, mp_client: MercadoPagoClient | None 
         payer_email = f"{discord_id}@{settings.PAYER_EMAIL_DOMAIN}"
 
         try:
-            pagamento_mp = mp_client.criar_pagamento_pix(
+            pagamento_mp = await asyncio.to_thread(
+                mp_client.criar_pagamento_pix,
                 valor=settings.SUBSCRIPTION_PRICE,
                 discord_id=discord_id,
                 descricao="Assinatura mensal - Servidor de Ofertas",
