@@ -153,16 +153,24 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             guild = bot.get_guild(settings.GUILD_ID)
             if guild is None:
                 raise HTTPException(status_code=503, detail="Guild indisponível")
-            resultados = []
+
+            # 1) Só lê do banco, libera o lock imediatamente.
             with db.connect() as conn:
                 expirados = subscription.listar_expirados(conn)
-                for usuario in expirados:
-                    try:
-                        await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
-                        resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
-                    except Exception as exc:  # noqa: BLE001
-                        resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+
+            # 2) Chama o Discord SEM segurar o lock.
+            resultados = []
+            for usuario in expirados:
+                try:
+                    await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
+                    resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
+                except Exception as exc:  # noqa: BLE001
+                    resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+
+                # 3) Reabre o lock só pra escrever, rapidinho, por usuário.
+                with db.connect() as conn:
                     subscription.marcar_inativo(conn, usuario)
+
             return {"processados": resultados}
 
         @app.post("/admin/rodar-avisos")
@@ -171,23 +179,30 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             guild = bot.get_guild(settings.GUILD_ID)
             if guild is None:
                 raise HTTPException(status_code=503, detail="Guild indisponível")
-            enviados = []
+
+            # 1) Só lê do banco, libera o lock imediatamente.
+            usuarios_por_dias: dict[int, list] = {}
             with db.connect() as conn:
                 for dias in (7, 1):
-                    usuarios = subscription.listar_a_vencer(conn, dias)
-                    for usuario in usuarios:
-                        member = guild.get_member(int(usuario.discord_id))
-                        if member is None:
-                            continue
-                        plural = "dias" if dias > 1 else "dia"
-                        try:
-                            await member.send(
-                                f"Sua assinatura vence em {dias} {plural}. "
-                                "Use /assinar no servidor para renovar e não perder o acesso."
-                            )
-                            enviados.append({"discord_id": usuario.discord_id, "dias": dias})
-                        except Exception as exc:  # noqa: BLE001
-                            enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+                    usuarios_por_dias[dias] = subscription.listar_a_vencer(conn, dias)
+
+            # 2) Envia as DMs SEM segurar o lock.
+            enviados = []
+            for dias, usuarios in usuarios_por_dias.items():
+                plural = "dias" if dias > 1 else "dia"
+                for usuario in usuarios:
+                    member = guild.get_member(int(usuario.discord_id))
+                    if member is None:
+                        continue
+                    try:
+                        await member.send(
+                            f"Sua assinatura vence em {dias} {plural}. "
+                            "Use /assinar no servidor para renovar e não perder o acesso."
+                        )
+                        enviados.append({"discord_id": usuario.discord_id, "dias": dias})
+                    except Exception as exc:  # noqa: BLE001
+                        enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+
             return {"enviados": enviados}
 
     return app
