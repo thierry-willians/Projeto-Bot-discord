@@ -36,6 +36,11 @@ class Settings:
     # associado. Pode ser sobrescrito via .env se necessário.
     PAYER_EMAIL_DOMAIN: str = "discord-subscriber.local"
 
+    # Chave secreta que habilita as rotas /admin/* (só para testes manuais).
+    # Se ficar vazia, as rotas de admin não são registradas. REMOVER/limpar
+    # essa variável antes de divulgar o bot para o servidor real.
+    ADMIN_KEY: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -63,6 +68,7 @@ def get_settings() -> Settings:
         SUBSCRIPTION_DAYS=int(os.getenv("SUBSCRIPTION_DAYS", "30")),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "subscriptions.db"),
         WEBHOOK_HOST=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
-        WEBHOOK_PORT=int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000"))),
+        WEBHOOK_PORT=int(os.getenv("WEBHOOK_PORT", "8000")),
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
+        ADMIN_KEY=os.getenv("ADMIN_KEY", ""),
     )
