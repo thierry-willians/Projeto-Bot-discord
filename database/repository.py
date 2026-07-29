@@ -1,7 +1,3 @@
-"""
-Camada de acesso a dados (SQL puro via sqlite3). Toda a lógica de negócio
-fica em services/subscription.py; este módulo só sabe ler e gravar linhas.
-"""
 import sqlite3
 from datetime import datetime
 from typing import Optional
