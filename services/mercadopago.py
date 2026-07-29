@@ -1,9 +1,3 @@
-"""
-Cliente HTTP para a API do Mercado Pago.
-
-Responsável apenas por conversar com a API (criar pagamento PIX e consultar
-status). Toda a lógica de negócio fica em services/subscription.py.
-"""
 import httpx
 import uuid
 
@@ -11,8 +5,6 @@ MP_API_BASE = "https://api.mercadopago.com"
 
 
 class MercadoPagoError(Exception):
-    """Erro genérico ao chamar a API do Mercado Pago."""
-
 
 class MercadoPagoClient:
     def __init__(self, access_token: str, timeout: float = 15.0):
@@ -37,7 +29,6 @@ class MercadoPagoClient:
         idempotency_key: str | None = None,
     ) -> dict:
         idempotency_key = idempotency_key or str(uuid.uuid4())
-        """Cria um pagamento PIX vinculado ao discord_id via external_reference."""
         payload = {
             "transaction_amount": round(float(valor), 2),
             "description": descricao,
@@ -58,7 +49,6 @@ class MercadoPagoClient:
         return resp.json()
 
     def consultar_pagamento(self, payment_id: str) -> dict:
-        """Consulta o status real de um pagamento. NUNCA confiar só no webhook."""
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.get(
                 f"{MP_API_BASE}/v1/payments/{payment_id}",
