@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from bot.roles import adicionar_cargo, remover_cargo
 from config.settings import get_settings
 from database import repository
+from database.models import Usuario
 from services import subscription
 from services.mercadopago import MercadoPagoClient, MercadoPagoError
 
@@ -130,6 +131,25 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 repository.upsert_usuario(conn, usuario)
             return {"status": "ok", "nova_data_expiracao": usuario.data_expiracao.isoformat()}
 
+        @app.get("/admin/ativar-manual")
+        async def admin_ativar_manual(chave: str, discord_id: str, dias: int):
+            _checar_chave(chave)
+            with db.connect() as conn:
+                usuario = repository.get_usuario(conn, discord_id)
+                agora = datetime.utcnow()
+                if usuario is None:
+                    usuario = Usuario(discord_id=discord_id)
+                    usuario.data_inicio = agora
+                usuario.data_expiracao = agora + timedelta(days=dias)
+                usuario.status = "ativo"
+                repository.upsert_usuario(conn, usuario)
+
+            return {
+                "status": "ok",
+                "discord_id": discord_id,
+                "data_expiracao": usuario.data_expiracao.isoformat(),
+            }
+
         @app.post("/admin/rodar-expiracao")
         async def admin_rodar_expiracao(chave: str):
             _checar_chave(chave)
@@ -145,7 +165,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 try:
                     await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
                     resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
                 with db.connect() as conn:
