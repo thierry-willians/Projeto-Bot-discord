@@ -1,11 +1,3 @@
-"""
-Webhook do Mercado Pago.
-
-Regra de segurança mais importante deste arquivo: NUNCA confiar no corpo do
-webhook para liberar acesso. O webhook só é usado como um "sinal" de que algo
-mudou; o status real do pagamento é sempre confirmado consultando a API do
-Mercado Pago (mp_client.consultar_pagamento).
-"""
 import logging
 from datetime import datetime, timedelta
 
@@ -41,7 +33,6 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
         if isinstance(body, dict) and body.get("type") == "payment":
             payment_id = body.get("data", {}).get("id")
 
-        # O Mercado Pago também pode notificar via query string.
         payment_id = (
             payment_id
             or request.query_params.get("id")
@@ -49,8 +40,6 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
         )
 
         if not payment_id:
-            # Notificação irrelevante (ex: teste, merchant_order). Responder
-            # 200 para o Mercado Pago não ficar reenviando.
             return {"status": "ignorado"}
 
         try:
@@ -88,7 +77,6 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 return {"status": "valor_invalido"}
 
         if not processado_agora:
-            # Webhook duplicado — já processamos esse payment_id antes.
             return {"status": "ja_processado"}
 
         guild = bot.get_guild(settings.GUILD_ID)
@@ -98,16 +86,12 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
 
         try:
             await adicionar_cargo(guild, str(discord_id), settings.ROLE_ID)
-        except Exception as exc:  # noqa: BLE001 - queremos logar qualquer falha aqui
+        except Exception as exc:
             logger.error("Erro ao adicionar cargo para %s: %s", discord_id, exc)
             return {"status": "aprovado_mas_erro_ao_liberar_cargo"}
 
         return {"status": "ok"}
 
-    # ------------------------------------------------------------------
-    # ROTAS TEMPORÁRIAS DE TESTE — remover antes de divulgar o bot.
-    # Só existem se ADMIN_KEY estiver configurada no .env / Railway.
-    # ------------------------------------------------------------------
     if settings.ADMIN_KEY:
 
         def _checar_chave(chave: str) -> None:
@@ -133,7 +117,6 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
 
         @app.get("/admin/set-expiracao")
         async def admin_set_expiracao(chave: str, discord_id: str, dias: int):
-            """dias pode ser negativo (já venceu) ou positivo (vence no futuro)."""
             _checar_chave(chave)
             with db.connect() as conn:
                 usuario = repository.get_usuario(conn, discord_id)
@@ -154,20 +137,17 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             if guild is None:
                 raise HTTPException(status_code=503, detail="Guild indisponível")
 
-            # 1) Só lê do banco, libera o lock imediatamente.
             with db.connect() as conn:
                 expirados = subscription.listar_expirados(conn)
 
-            # 2) Chama o Discord SEM segurar o lock.
             resultados = []
             for usuario in expirados:
                 try:
                     await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
                     resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
-                # 3) Reabre o lock só pra escrever, rapidinho, por usuário.
                 with db.connect() as conn:
                     subscription.marcar_inativo(conn, usuario)
 
@@ -180,13 +160,11 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             if guild is None:
                 raise HTTPException(status_code=503, detail="Guild indisponível")
 
-            # 1) Só lê do banco, libera o lock imediatamente.
             usuarios_por_dias: dict[int, list] = {}
             with db.connect() as conn:
                 for dias in (7, 1):
                     usuarios_por_dias[dias] = subscription.listar_a_vencer(conn, dias)
 
-            # 2) Envia as DMs SEM segurar o lock.
             enviados = []
             for dias, usuarios in usuarios_por_dias.items():
                 plural = "dias" if dias > 1 else "dia"
@@ -200,7 +178,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                             "Use /assinar no servidor para renovar e não perder o acesso."
                         )
                         enviados.append({"discord_id": usuario.discord_id, "dias": dias})
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
             return {"enviados": enviados}
