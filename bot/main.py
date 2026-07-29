@@ -1,4 +1,3 @@
-"""Criação e configuração do bot Discord."""
 import discord
 from discord.ext import commands
 
@@ -11,12 +10,12 @@ def build_bot() -> commands.Bot:
     settings = get_settings()
 
     intents = discord.Intents.default()
-    intents.members = True  # necessário para fetch_member / add_roles
+    intents.members = True
 
     bot = commands.Bot(command_prefix="!", intents=intents)
 
     db = make_database(settings.DATABASE_PATH)
-    bot.db = db  # exposto para uso em webhook/tasks
+    bot.db = db
 
     setup_commands(bot, db)
 
