@@ -5,6 +5,8 @@ MP_API_BASE = "https://api.mercadopago.com"
 
 
 class MercadoPagoError(Exception):
+    pass
+
 
 class MercadoPagoClient:
     def __init__(self, access_token: str, timeout: float = 15.0):
