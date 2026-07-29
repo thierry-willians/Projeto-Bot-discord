@@ -1,10 +1,3 @@
-"""
-Configurações do sistema, carregadas a partir de variáveis de ambiente (.env).
-
-Uso:
-    from config.settings import get_settings
-    settings = get_settings()
-"""
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -31,20 +24,13 @@ class Settings:
     WEBHOOK_HOST: str = "0.0.0.0"
     WEBHOOK_PORT: int = 8000
 
-    # Domínio fictício usado para gerar um "e-mail" de pagador exigido pela
-    # API do Mercado Pago, já que usuários do Discord não possuem e-mail
-    # associado. Pode ser sobrescrito via .env se necessário.
     PAYER_EMAIL_DOMAIN: str = "discord-subscriber.local"
-
-    # Chave secreta que habilita as rotas /admin/* (só para testes manuais).
-    # Se ficar vazia, as rotas de admin não são registradas. REMOVER/limpar
-    # essa variável antes de divulgar o bot para o servidor real.
+    
     ADMIN_KEY: str = ""
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Carrega e valida as configurações. Lança RuntimeError se faltar algo."""
     missing = [v for v in REQUIRED_VARS if not os.getenv(v)]
     if missing:
         raise RuntimeError(
@@ -68,8 +54,6 @@ def get_settings() -> Settings:
         SUBSCRIPTION_DAYS=int(os.getenv("SUBSCRIPTION_DAYS", "30")),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "subscriptions.db"),
         WEBHOOK_HOST=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
-        # Railway injeta a porta certa na variável PORT; localmente cai no
-        # WEBHOOK_PORT do .env (padrão 8000).
         WEBHOOK_PORT=int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000"))),
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
         ADMIN_KEY=os.getenv("ADMIN_KEY", ""),
