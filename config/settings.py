@@ -63,6 +63,6 @@ def get_settings() -> Settings:
         SUBSCRIPTION_DAYS=int(os.getenv("SUBSCRIPTION_DAYS", "30")),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "subscriptions.db"),
         WEBHOOK_HOST=os.getenv("WEBHOOK_HOST", "0.0.0.0"),
-        WEBHOOK_PORT=int(os.getenv("WEBHOOK_PORT", "8000")),
+        WEBHOOK_PORT=int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000"))),
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
     )
