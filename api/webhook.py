@@ -7,12 +7,13 @@ mudou; o status real do pagamento é sempre confirmado consultando a API do
 Mercado Pago (mp_client.consultar_pagamento).
 """
 import logging
-import asyncio
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Request
 
-from bot.roles import adicionar_cargo
+from bot.roles import adicionar_cargo, remover_cargo
 from config.settings import get_settings
+from database import repository
 from services import subscription
 from services.mercadopago import MercadoPagoClient, MercadoPagoError
 
@@ -53,7 +54,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             return {"status": "ignorado"}
 
         try:
-            pagamento_mp = await asyncio.to_thread(mp_client.consultar_pagamento, str(payment_id))
+            pagamento_mp = mp_client.consultar_pagamento(str(payment_id))
         except MercadoPagoError as exc:
             logger.error("Falha ao consultar pagamento %s: %s", payment_id, exc)
             raise HTTPException(status_code=502, detail="Falha ao consultar Mercado Pago")
@@ -102,5 +103,91 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
             return {"status": "aprovado_mas_erro_ao_liberar_cargo"}
 
         return {"status": "ok"}
+
+    # ------------------------------------------------------------------
+    # ROTAS TEMPORÁRIAS DE TESTE — remover antes de divulgar o bot.
+    # Só existem se ADMIN_KEY estiver configurada no .env / Railway.
+    # ------------------------------------------------------------------
+    if settings.ADMIN_KEY:
+
+        def _checar_chave(chave: str) -> None:
+            if chave != settings.ADMIN_KEY:
+                raise HTTPException(status_code=403, detail="Chave inválida")
+
+        @app.get("/admin/status")
+        async def admin_status(chave: str, discord_id: str):
+            _checar_chave(chave)
+            with db.connect() as conn:
+                usuario = repository.get_usuario(conn, discord_id)
+            if usuario is None:
+                return {"encontrado": False}
+            return {
+                "encontrado": True,
+                "discord_id": usuario.discord_id,
+                "status": usuario.status,
+                "data_inicio": usuario.data_inicio.isoformat() if usuario.data_inicio else None,
+                "data_expiracao": usuario.data_expiracao.isoformat()
+                if usuario.data_expiracao
+                else None,
+            }
+
+        @app.get("/admin/set-expiracao")
+        async def admin_set_expiracao(chave: str, discord_id: str, dias: int):
+            """dias pode ser negativo (já venceu) ou positivo (vence no futuro)."""
+            _checar_chave(chave)
+            with db.connect() as conn:
+                usuario = repository.get_usuario(conn, discord_id)
+                if usuario is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Usuário não encontrado. Rode /assinar pelo menos uma vez antes.",
+                    )
+                usuario.data_expiracao = datetime.utcnow() + timedelta(days=dias)
+                usuario.status = "ativo"
+                repository.upsert_usuario(conn, usuario)
+            return {"status": "ok", "nova_data_expiracao": usuario.data_expiracao.isoformat()}
+
+        @app.post("/admin/rodar-expiracao")
+        async def admin_rodar_expiracao(chave: str):
+            _checar_chave(chave)
+            guild = bot.get_guild(settings.GUILD_ID)
+            if guild is None:
+                raise HTTPException(status_code=503, detail="Guild indisponível")
+            resultados = []
+            with db.connect() as conn:
+                expirados = subscription.listar_expirados(conn)
+                for usuario in expirados:
+                    try:
+                        await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
+                        resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
+                    except Exception as exc:  # noqa: BLE001
+                        resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+                    subscription.marcar_inativo(conn, usuario)
+            return {"processados": resultados}
+
+        @app.post("/admin/rodar-avisos")
+        async def admin_rodar_avisos(chave: str):
+            _checar_chave(chave)
+            guild = bot.get_guild(settings.GUILD_ID)
+            if guild is None:
+                raise HTTPException(status_code=503, detail="Guild indisponível")
+            enviados = []
+            with db.connect() as conn:
+                for dias in (7, 1):
+                    usuarios = subscription.listar_a_vencer(conn, dias)
+                    for usuario in usuarios:
+                        member = guild.get_member(int(usuario.discord_id))
+                        if member is None:
+                            continue
+                        plural = "dias" if dias > 1 else "dia"
+                        try:
+                            await member.send(
+                                f"Sua assinatura vence em {dias} {plural}. "
+                                "Use /assinar no servidor para renovar e não perder o acesso."
+                            )
+                            enviados.append({"discord_id": usuario.discord_id, "dias": dias})
+                        except Exception as exc:  # noqa: BLE001
+                            enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
+            return {"enviados": enviados}
 
     return app
