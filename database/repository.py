@@ -112,3 +112,10 @@ def listar_usuarios_a_vencer(
         (_fmt_dt(janela_inicio), _fmt_dt(janela_fim)),
     ).fetchall()
     return [_row_to_usuario(r) for r in rows]
+
+
+def listar_usuarios_ativos(conn: sqlite3.Connection) -> list[Usuario]:
+    rows = conn.execute(
+        "SELECT * FROM usuarios WHERE status = 'ativo' ORDER BY data_expiracao ASC"
+    ).fetchall()
+    return [_row_to_usuario(r) for r in rows]

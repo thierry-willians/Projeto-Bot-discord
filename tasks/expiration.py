@@ -25,7 +25,7 @@ def setup_expiration_tasks(bot, db):
         for usuario in expirados:
             try:
                 await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.error("Erro ao remover cargo de %s: %s", usuario.discord_id, exc)
 
             with db.connect() as conn:
@@ -54,7 +54,19 @@ def setup_expiration_tasks(bot, db):
                         f"Sua assinatura vence em {dias} {plural}. "
                         "Use /assinar no servidor para renovar e não perder o acesso."
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     logger.error("Erro ao avisar %s: %s", usuario.discord_id, exc)
+
+                if usuario.discord_id != settings.ADMIN_DISCORD_ID:
+                    try:
+                        admin_member = guild.get_member(int(settings.ADMIN_DISCORD_ID))
+                        if admin_member:
+                            nome_exibicao = member.display_name if member else usuario.discord_id
+                            await admin_member.send(
+                                f"Aviso enviado: {nome_exibicao} ({usuario.discord_id}) "
+                                f"vence em {dias} {plural}."
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error("Erro ao notificar admin sobre %s: %s", usuario.discord_id, exc)
 
     return verificar_expirados, avisar_vencimento

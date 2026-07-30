@@ -25,8 +25,10 @@ class Settings:
     WEBHOOK_PORT: int = 8000
 
     PAYER_EMAIL_DOMAIN: str = "discord-subscriber.local"
-    
+
     ADMIN_KEY: str = ""
+
+    ADMIN_DISCORD_ID: str = "1066862919960231986"
 
 
 @lru_cache
@@ -57,4 +59,5 @@ def get_settings() -> Settings:
         WEBHOOK_PORT=int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8000"))),
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
         ADMIN_KEY=os.getenv("ADMIN_KEY", ""),
+        ADMIN_DISCORD_ID=os.getenv("ADMIN_DISCORD_ID", "1066862919960231986"),
     )
