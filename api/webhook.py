@@ -191,6 +191,24 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 "data_expiracao": usuario.data_expiracao.isoformat(),
             }
 
+        @app.post("/admin/adicionar-dias-todos")
+        async def admin_adicionar_dias_todos(chave: str, dias: int):
+            _checar_chave(chave)
+            atualizados = []
+            with db.connect() as conn:
+                ativos = repository.listar_usuarios_ativos(conn)
+                for usuario in ativos:
+                    base = usuario.data_expiracao or datetime.utcnow()
+                    usuario.data_expiracao = base + timedelta(days=dias)
+                    repository.upsert_usuario(conn, usuario)
+                    atualizados.append(
+                        {
+                            "discord_id": usuario.discord_id,
+                            "nova_data_expiracao": usuario.data_expiracao.isoformat(),
+                        }
+                    )
+            return {"total_atualizados": len(atualizados), "dias_adicionados": dias, "usuarios": atualizados}
+
         @app.post("/admin/rodar-expiracao")
         async def admin_rodar_expiracao(chave: str):
             _checar_chave(chave)
