@@ -1,5 +1,7 @@
 import uuid
 import asyncio
+import base64
+import io
 import discord
 
 from config.settings import get_settings
@@ -40,29 +42,49 @@ def setup_commands(bot: discord.Client, db, mp_client: MercadoPagoClient | None 
             return
 
         payment_id = str(pagamento_mp["id"])
-        qr_code = (
-            pagamento_mp.get("point_of_interaction", {})
-            .get("transaction_data", {})
-            .get("qr_code")
+        transaction_data = pagamento_mp.get("point_of_interaction", {}).get(
+            "transaction_data", {}
         )
+        qr_code = transaction_data.get("qr_code")
+        qr_code_base64 = transaction_data.get("qr_code_base64")
 
         with db.connect() as conn:
             subscription.registrar_pagamento_pendente(
                 conn, payment_id, discord_id, settings.SUBSCRIPTION_PRICE
             )
 
-        if qr_code:
-            texto = (
-                f"**Assinatura — R$ {settings.SUBSCRIPTION_PRICE:.2f}/mês**\n\n"
-                "Copie o código Pix abaixo e pague no app do seu banco. "
-                "Seu acesso é liberado automaticamente em poucos segundos após a confirmação.\n\n"
-                f"```{qr_code}```"
-            )
-        else:
-            texto = (
-                "PIX gerado, mas não recebi o código copia-e-cola do Mercado Pago. "
+        if not qr_code and not qr_code_base64:
+            await interaction.followup.send(
+                "PIX gerado, mas não recebi o código do Mercado Pago. "
                 "Contate o suporte informando o código de referência: "
-                f"`{payment_id}`."
+                f"`{payment_id}`.",
+                ephemeral=True,
             )
+            return
 
-        await interaction.followup.send(texto, ephemeral=True)
+        texto = (
+            f"**Assinatura — R$ {settings.SUBSCRIPTION_PRICE:.2f}/mês**\n\n"
+            "Escaneie o QR Code abaixo pelo app do seu banco ou copie o código Pix. "
+            "Seu acesso é liberado automaticamente em poucos segundos após a confirmação."
+        )
+        if qr_code:
+            texto += f"\n\n**Código Pix (copia e cola):**\n```{qr_code}```"
+
+        arquivo = None
+        embed = None
+        if qr_code_base64:
+            try:
+                imagem_bytes = base64.b64decode(qr_code_base64)
+                arquivo = discord.File(io.BytesIO(imagem_bytes), filename="pix.png")
+                embed = discord.Embed(color=discord.Color.green())
+                embed.set_image(url="attachment://pix.png")
+            except (ValueError, TypeError):
+                arquivo = None
+                embed = None
+
+        await interaction.followup.send(
+            texto,
+            embed=embed,
+            file=arquivo,
+            ephemeral=True,
+        )
