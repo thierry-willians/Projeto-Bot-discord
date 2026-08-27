@@ -2,8 +2,11 @@ import uuid
 import asyncio
 import base64
 import io
+from datetime import datetime
+
 import discord
 
+from database import repository
 from config.settings import get_settings
 from services import subscription
 from services.mercadopago import MercadoPagoClient, MercadoPagoError
@@ -88,3 +91,52 @@ def setup_commands(bot: discord.Client, db, mp_client: MercadoPagoClient | None 
             file=arquivo,
             ephemeral=True,
         )
+
+    @bot.tree.command(
+        name="status",
+        description="Veja quantos dias restam na sua assinatura.",
+    )
+    async def status(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        discord_id = str(interaction.user.id)
+
+        with db.connect() as conn:
+            usuario = repository.get_usuario(conn, discord_id)
+
+        if usuario is None or usuario.status != "ativo" or usuario.data_expiracao is None:
+            await interaction.followup.send(
+                "Você não tem uma assinatura ativa no momento. "
+                "Use `/assinar` para gerar um PIX e liberar seu acesso.",
+                ephemeral=True,
+            )
+            return
+
+        agora = datetime.utcnow()
+        restante = usuario.data_expiracao - agora
+
+        if restante.total_seconds() <= 0:
+            await interaction.followup.send(
+                "Sua assinatura venceu. Use `/assinar` para renovar.",
+                ephemeral=True,
+            )
+            return
+
+        dias_restantes = restante.days
+        horas_restantes = restante.seconds // 3600
+        data_formatada = usuario.data_expiracao.strftime("%d/%m/%Y às %H:%M")
+
+        if dias_restantes >= 1:
+            tempo_texto = f"**{dias_restantes} dia(s)** e {horas_restantes}h"
+        else:
+            tempo_texto = f"**{horas_restantes}h**"
+
+        embed = discord.Embed(
+            title="Status da assinatura",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Status", value="Ativa", inline=True)
+        embed.add_field(name="Tempo restante", value=tempo_texto, inline=True)
+        embed.add_field(name="Expira em", value=data_formatada, inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
