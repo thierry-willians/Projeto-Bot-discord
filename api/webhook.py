@@ -91,7 +91,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
 
         try:
             await adicionar_cargo(guild, str(discord_id), settings.ROLE_ID)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("Erro ao adicionar cargo para %s: %s", discord_id, exc)
             return {"status": "aprovado_mas_erro_ao_liberar_cargo"}
 
@@ -109,19 +109,29 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
         agora = datetime.utcnow()
         linhas = []
         for usuario in ativos:
-            dias_restantes = (usuario.data_expiracao - agora).days if usuario.data_expiracao else None
+            if usuario.data_expiracao:
+                delta = usuario.data_expiracao - agora
+                dias = delta.days
+                horas, resto = divmod(delta.seconds, 3600)
+                minutos = resto // 60
+            else:
+                dias = horas = minutos = None
             member = guild.get_member(int(usuario.discord_id)) if guild else None
             nome_exibicao = member.display_name if member else usuario.discord_id
-            linhas.append((dias_restantes if dias_restantes is not None else 999999, nome_exibicao, dias_restantes))
+            ordenacao = usuario.data_expiracao or datetime.max
+            linhas.append((ordenacao, nome_exibicao, dias, horas, minutos))
 
         linhas.sort(key=lambda item: item[0])
 
         texto = f"Relatório de assinantes\nTotal ativos: {len(ativos)}\n\n"
         if linhas:
-            texto += "\n".join(
-                f"- {nome}: {dias} dia(s) restante(s)" if dias is not None else f"- {nome}: sem data de expiração"
-                for _, nome, dias in linhas
-            )
+            partes = []
+            for _, nome, dias, horas, minutos in linhas:
+                if dias is None:
+                    partes.append(f"- {nome}: sem data de expiração")
+                else:
+                    partes.append(f"- {nome}: {dias} dia(s), {horas} hora(s) e {minutos} minuto(s) restantes")
+            texto += "\n".join(partes)
         else:
             texto += "Nenhum assinante ativo no momento."
 
@@ -133,7 +143,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 )
                 await admin_member.send(texto)
                 enviado_dm = True
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.error("Erro ao enviar relatório por DM: %s", exc)
 
         return {"enviado_dm": enviado_dm, "total_ativos": len(ativos), "relatorio": texto}
@@ -209,6 +219,27 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                     )
             return {"total_atualizados": len(atualizados), "dias_adicionados": dias, "usuarios": atualizados}
 
+        @app.post("/admin/enviar-dm")
+        async def admin_enviar_dm(chave: str, discord_id: str, mensagem: str):
+            _checar_chave(chave)
+            guild = bot.get_guild(settings.GUILD_ID)
+            if guild is None:
+                raise HTTPException(status_code=503, detail="Guild indisponível")
+
+            member = guild.get_member(int(discord_id))
+            if member is None:
+                try:
+                    member = await guild.fetch_member(int(discord_id))
+                except Exception:
+                    raise HTTPException(status_code=404, detail="Membro não encontrado no servidor")
+
+            try:
+                await member.send(mensagem)
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"Falha ao enviar DM: {exc}")
+
+            return {"status": "ok", "discord_id": discord_id, "mensagem_enviada": mensagem}
+
         @app.post("/admin/rodar-expiracao")
         async def admin_rodar_expiracao(chave: str):
             _checar_chave(chave)
@@ -224,7 +255,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 try:
                     await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
                     resultados.append({"discord_id": usuario.discord_id, "cargo_removido": True})
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     resultados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
                 with db.connect() as conn:
@@ -257,7 +288,7 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                             "Use /assinar no servidor para renovar e não perder o acesso."
                         )
                         enviados.append({"discord_id": usuario.discord_id, "dias": dias})
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
             return {"enviados": enviados}
