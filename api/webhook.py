@@ -201,6 +201,28 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 "data_expiracao": usuario.data_expiracao.isoformat(),
             }
 
+        @app.post("/admin/adicionar-dias")
+        async def admin_adicionar_dias(chave: str, discord_id: str, dias: int):
+            _checar_chave(chave)
+            with db.connect() as conn:
+                usuario = repository.get_usuario(conn, discord_id)
+                if usuario is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Usuário não encontrado. Rode /assinar ou /admin/ativar-manual pelo menos uma vez antes.",
+                    )
+                base = usuario.data_expiracao or datetime.utcnow()
+                usuario.data_expiracao = base + timedelta(days=dias)
+                usuario.status = "ativo"
+                repository.upsert_usuario(conn, usuario)
+
+            return {
+                "status": "ok",
+                "discord_id": discord_id,
+                "dias_adicionados": dias,
+                "nova_data_expiracao": usuario.data_expiracao.isoformat(),
+            }
+
         @app.post("/admin/adicionar-dias-todos")
         async def admin_adicionar_dias_todos(chave: str, dias: int):
             _checar_chave(chave)
