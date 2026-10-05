@@ -19,6 +19,20 @@ CREATE TABLE IF NOT EXISTS pagamentos (
     data_pagamento TEXT,
     processado INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS relatorios_semanais (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    semana_inicio TEXT NOT NULL UNIQUE,
+    semana_fim TEXT NOT NULL,
+    total_ids INTEGER NOT NULL,
+    total_ofertas INTEGER NOT NULL,
+    tempo_total_horas REAL NOT NULL,
+    png_blob BLOB NOT NULL,
+    recebido_em TEXT NOT NULL,
+    postado INTEGER NOT NULL DEFAULT 0,
+    postado_em TEXT,
+    mensagem_id TEXT
+);
 """
 
 
