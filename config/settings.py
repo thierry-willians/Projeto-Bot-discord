@@ -30,6 +30,11 @@ class Settings:
 
     ADMIN_DISCORD_ID: str = "1066862919960231986"
 
+    REPORT_CHANNEL_ID: int = 0
+    REPORT_API_KEY: str = ""
+    REPORT_HOUR: int = 7
+    REPORT_WEEKDAY: int = 0
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -60,4 +65,8 @@ def get_settings() -> Settings:
         PAYER_EMAIL_DOMAIN=os.getenv("PAYER_EMAIL_DOMAIN", "discord-subscriber.local"),
         ADMIN_KEY=os.getenv("ADMIN_KEY", ""),
         ADMIN_DISCORD_ID=os.getenv("ADMIN_DISCORD_ID", "1066862919960231986"),
+        REPORT_CHANNEL_ID=int(os.getenv("REPORT_CHANNEL_ID", "0")),
+        REPORT_API_KEY=os.getenv("REPORT_API_KEY", ""),
+        REPORT_HOUR=int(os.getenv("REPORT_HOUR", "7")),
+        REPORT_WEEKDAY=int(os.getenv("REPORT_WEEKDAY", "0")),
     )
