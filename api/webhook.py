@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from bot.roles import adicionar_cargo, remover_cargo
 from config.settings import get_settings
 from database import repository
-from database.models import Usuario
+from database.models import RelatorioSemanal, Usuario
 from services import subscription
 from services.mercadopago import MercadoPagoClient, MercadoPagoError
 
@@ -201,28 +201,6 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                 "data_expiracao": usuario.data_expiracao.isoformat(),
             }
 
-        @app.post("/admin/adicionar-dias")
-        async def admin_adicionar_dias(chave: str, discord_id: str, dias: int):
-            _checar_chave(chave)
-            with db.connect() as conn:
-                usuario = repository.get_usuario(conn, discord_id)
-                if usuario is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Usuário não encontrado. Rode /assinar ou /admin/ativar-manual pelo menos uma vez antes.",
-                    )
-                base = usuario.data_expiracao or datetime.utcnow()
-                usuario.data_expiracao = base + timedelta(days=dias)
-                usuario.status = "ativo"
-                repository.upsert_usuario(conn, usuario)
-
-            return {
-                "status": "ok",
-                "discord_id": discord_id,
-                "dias_adicionados": dias,
-                "nova_data_expiracao": usuario.data_expiracao.isoformat(),
-            }
-
         @app.post("/admin/adicionar-dias-todos")
         async def admin_adicionar_dias_todos(chave: str, dias: int):
             _checar_chave(chave)
@@ -314,5 +292,69 @@ def build_webhook_app(bot, db, mp_client: MercadoPagoClient | None = None) -> Fa
                         enviados.append({"discord_id": usuario.discord_id, "erro": str(exc)})
 
             return {"enviados": enviados}
+
+    # ─── Relatório semanal ──────────────────────────────────────
+
+    def _checar_api_key_relatorio(request: Request) -> None:
+        chave = request.headers.get("X-API-Key", "")
+        if not settings.REPORT_API_KEY or chave != settings.REPORT_API_KEY:
+            raise HTTPException(status_code=403, detail="API key inválida")
+
+    @app.post("/relatorio-semanal")
+    async def receber_relatorio_semanal(request: Request):
+        _checar_api_key_relatorio(request)
+        form = await request.form()
+        try:
+            semana_inicio = str(form["semana_inicio"])
+            semana_fim = str(form["semana_fim"])
+            total_ids = int(form["total_ids"])
+            total_ofertas = int(form["total_ofertas"])
+            tempo_total_horas = float(form["tempo_total_horas"])
+            png_field = form["png"]
+            png_bytes = await png_field.read() if hasattr(png_field, "read") else png_field
+        except (KeyError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"Formulário inválido: {exc}")
+
+        if not png_bytes:
+            raise HTTPException(status_code=400, detail="PNG vazio")
+
+        rel = RelatorioSemanal(
+            id=None,
+            semana_inicio=semana_inicio,
+            semana_fim=semana_fim,
+            total_ids=total_ids,
+            total_ofertas=total_ofertas,
+            tempo_total_horas=tempo_total_horas,
+            png_blob=png_bytes,
+        )
+        with db.connect() as conn:
+            rel_id = repository.inserir_relatorio_semanal(conn, rel)
+        logger.info("Relatório semanal recebido: id=%s semana=%s", rel_id, semana_inicio)
+        return {"id": rel_id, "status": "recebido"}
+
+    @app.get("/relatorio-semanal/postados")
+    async def listar_relatorios_postados(request: Request):
+        _checar_api_key_relatorio(request)
+        with db.connect() as conn:
+            rels = repository.listar_relatorios_postados_nao_confirmados(conn)
+        return {
+            "relatorios": [
+                {
+                    "id": r.id,
+                    "semana_inicio": r.semana_inicio,
+                    "semana_fim": r.semana_fim,
+                    "postado_em": r.postado_em,
+                    "mensagem_id": r.mensagem_id,
+                }
+                for r in rels
+            ]
+        }
+
+    @app.delete("/relatorio-semanal/{rel_id}")
+    async def apagar_relatorio(request: Request, rel_id: int):
+        _checar_api_key_relatorio(request)
+        with db.connect() as conn:
+            repository.apagar_relatorio(conn, rel_id)
+        return {"status": "apagado", "id": rel_id}
 
     return app
