@@ -7,6 +7,7 @@ from api.webhook import build_webhook_app
 from bot.main import build_bot
 from config.settings import get_settings
 from tasks.expiration import setup_expiration_tasks
+from tasks.relatorio import setup_relatorio_tasks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -17,6 +18,7 @@ async def main() -> None:
     bot = build_bot()
     app = build_webhook_app(bot, bot.db)
     verificar_expirados, avisar_vencimento = setup_expiration_tasks(bot, bot.db)
+    postar_relatorio_semanal = setup_relatorio_tasks(bot, bot.db)
 
     @bot.event
     async def on_connect():
@@ -24,6 +26,8 @@ async def main() -> None:
             verificar_expirados.start()
         if not avisar_vencimento.is_running():
             avisar_vencimento.start()
+        if not postar_relatorio_semanal.is_running():
+            postar_relatorio_semanal.start()
 
     config = uvicorn.Config(
         app,
