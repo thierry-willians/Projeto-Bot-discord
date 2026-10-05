@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from database.models import Pagamento, Usuario
+from database.models import Pagamento, RelatorioSemanal, Usuario
 
 DATE_FMT = "%Y-%m-%dT%H:%M:%S.%f"
 
@@ -119,3 +119,76 @@ def listar_usuarios_ativos(conn: sqlite3.Connection) -> list[Usuario]:
         "SELECT * FROM usuarios WHERE status = 'ativo' ORDER BY data_expiracao ASC"
     ).fetchall()
     return [_row_to_usuario(r) for r in rows]
+
+
+# ─── Relatórios semanais ────────────────────────────────────────
+
+def _row_to_relatorio(row: sqlite3.Row) -> RelatorioSemanal:
+    return RelatorioSemanal(
+        id=row["id"],
+        semana_inicio=row["semana_inicio"],
+        semana_fim=row["semana_fim"],
+        total_ids=row["total_ids"],
+        total_ofertas=row["total_ofertas"],
+        tempo_total_horas=row["tempo_total_horas"],
+        png_blob=row["png_blob"],
+        recebido_em=row["recebido_em"],
+        postado=bool(row["postado"]),
+        postado_em=row["postado_em"],
+        mensagem_id=row["mensagem_id"],
+    )
+
+
+def inserir_relatorio_semanal(conn: sqlite3.Connection, rel: RelatorioSemanal) -> int:
+    conn.execute(
+        """
+        INSERT INTO relatorios_semanais
+            (semana_inicio, semana_fim, total_ids, total_ofertas,
+             tempo_total_horas, png_blob, recebido_em, postado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        ON CONFLICT(semana_inicio) DO UPDATE SET
+            total_ids = excluded.total_ids,
+            total_ofertas = excluded.total_ofertas,
+            tempo_total_horas = excluded.tempo_total_horas,
+            png_blob = excluded.png_blob,
+            recebido_em = excluded.recebido_em
+        """,
+        (
+            rel.semana_inicio, rel.semana_fim, rel.total_ids, rel.total_ofertas,
+            rel.tempo_total_horas, rel.png_blob,
+            rel.recebido_em or datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id FROM relatorios_semanais WHERE semana_inicio = ?",
+        (rel.semana_inicio,),
+    ).fetchone()
+    return row["id"]
+
+
+def listar_relatorios_pendentes(conn: sqlite3.Connection) -> list[RelatorioSemanal]:
+    rows = conn.execute(
+        "SELECT * FROM relatorios_semanais WHERE postado = 0 ORDER BY semana_inicio ASC"
+    ).fetchall()
+    return [_row_to_relatorio(r) for r in rows]
+
+
+def listar_relatorios_postados_nao_confirmados(conn: sqlite3.Connection) -> list[RelatorioSemanal]:
+    rows = conn.execute(
+        "SELECT * FROM relatorios_semanais WHERE postado = 1 ORDER BY semana_inicio ASC"
+    ).fetchall()
+    return [_row_to_relatorio(r) for r in rows]
+
+
+def marcar_relatorio_postado(conn: sqlite3.Connection, rel_id: int, mensagem_id: int) -> None:
+    conn.execute(
+        "UPDATE relatorios_semanais SET postado = 1, postado_em = ?, mensagem_id = ? WHERE id = ?",
+        (datetime.utcnow().isoformat(), str(mensagem_id), rel_id),
+    )
+    conn.commit()
+
+
+def apagar_relatorio(conn: sqlite3.Connection, rel_id: int) -> None:
+    conn.execute("DELETE FROM relatorios_semanais WHERE id = ?", (rel_id,))
+    conn.commit()
