@@ -1,77 +1,72 @@
-"""Task periódica: posta no Discord o relatório semanal mais recente
-que o bot local enviou e que ainda não foi postado.
-
-Roda a cada 5 min. Posta só quando:
-  - é o dia configurado (REPORT_WEEKDAY, padrão segunda) em BRT
-  - a hora BRT >= REPORT_HOUR (padrão 7)
-  - existe relatório com postado=false
-"""
-import io
 import logging
-from datetime import datetime, timezone, timedelta
 
-import discord
 from discord.ext import tasks
 
+from bot.roles import remover_cargo
 from config.settings import get_settings
-from database import repository
+from services import subscription
 
-logger = logging.getLogger("tasks.relatorio")
-
-BRT = timezone(timedelta(hours=-3))
+logger = logging.getLogger("tasks.expiration")
 
 
-def setup_relatorio_tasks(bot, db):
+def setup_expiration_tasks(bot, db):
     settings = get_settings()
 
-    @tasks.loop(minutes=5)
-    async def postar_relatorio_semanal():
-        agora_brt = datetime.now(BRT)
-
-        if agora_brt.weekday() != settings.REPORT_WEEKDAY:
-            return
-        if agora_brt.hour < settings.REPORT_HOUR:
+    @tasks.loop(hours=24)
+    async def verificar_expirados():
+        guild = bot.get_guild(settings.GUILD_ID)
+        if guild is None:
+            logger.warning("Guild indisponível ao checar expirados.")
             return
 
         with db.connect() as conn:
-            pendentes = repository.listar_relatorios_pendentes(conn)
+            expirados = subscription.listar_expirados(conn)
 
-        if not pendentes:
-            return
-
-        canal = bot.get_channel(settings.REPORT_CHANNEL_ID)
-        if canal is None:
-            logger.error(
-                "Canal de relatório %s indisponível.",
-                settings.REPORT_CHANNEL_ID,
-            )
-            return
-
-        for rel in pendentes:
+        for usuario in expirados:
             try:
-                arquivo = discord.File(
-                    io.BytesIO(rel.png_blob),
-                    filename=f"relatorio_{rel.semana_inicio}.png",
-                )
-                embed = discord.Embed(
-                    title="Relatório Semanal",
-                    description=(
-                        f"Período: **{rel.semana_inicio}** a **{rel.semana_fim}**\n"
-                        f"IDs processados: **{rel.total_ids}**\n"
-                        f"Ofertas enviadas: **{rel.total_ofertas}**\n"
-                        f"Tempo de sessão: **{rel.tempo_total_horas:.1f}h**"
-                    ),
-                    color=discord.Color.blue(),
-                )
-                embed.set_image(url=f"attachment://relatorio_{rel.semana_inicio}.png")
-                msg = await canal.send(embed=embed, file=arquivo)
-                with db.connect() as conn:
-                    repository.marcar_relatorio_postado(conn, rel.id, msg.id)
-                logger.info(
-                    "Relatório semanal %s postado no Discord (msg=%s).",
-                    rel.semana_inicio, msg.id,
-                )
-            except Exception as exc:
-                logger.error("Falha ao postar relatório %s: %s", rel.id, exc)
+                await remover_cargo(guild, usuario.discord_id, settings.ROLE_ID)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Erro ao remover cargo de %s: %s", usuario.discord_id, exc)
 
-    return postar_relatorio_semanal
+            with db.connect() as conn:
+                subscription.marcar_inativo(conn, usuario)
+            logger.info("Assinatura de %s marcada como inativa.", usuario.discord_id)
+
+    @tasks.loop(hours=24)
+    async def avisar_vencimento():
+        guild = bot.get_guild(settings.GUILD_ID)
+        if guild is None:
+            return
+
+        usuarios_por_dias = {}
+        with db.connect() as conn:
+            for dias in (7, 1):
+                usuarios_por_dias[dias] = subscription.listar_a_vencer(conn, dias)
+
+        for dias, usuarios in usuarios_por_dias.items():
+            plural = "dias" if dias > 1 else "dia"
+            for usuario in usuarios:
+                member = guild.get_member(int(usuario.discord_id))
+                if member is None:
+                    continue
+                try:
+                    await member.send(
+                        f"Sua assinatura vence em {dias} {plural}. "
+                        "Use /assinar no servidor para renovar e não perder o acesso."
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Erro ao avisar %s: %s", usuario.discord_id, exc)
+
+                if usuario.discord_id != settings.ADMIN_DISCORD_ID:
+                    try:
+                        admin_member = guild.get_member(int(settings.ADMIN_DISCORD_ID))
+                        if admin_member:
+                            nome_exibicao = member.display_name if member else usuario.discord_id
+                            await admin_member.send(
+                                f"Aviso enviado: {nome_exibicao} ({usuario.discord_id}) "
+                                f"vence em {dias} {plural}."
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error("Erro ao notificar admin sobre %s: %s", usuario.discord_id, exc)
+
+    return verificar_expirados, avisar_vencimento
